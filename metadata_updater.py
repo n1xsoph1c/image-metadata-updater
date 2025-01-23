@@ -55,24 +55,43 @@ def update_metadata_jpeg(image_path, new_datetime):
     Update metadata for JPEG images.
     """
     try:
+        # Load existing EXIF metadata
         exif_dict = piexif.load(image_path)
-        existing_datetime = exif_dict["Exif"].get(piexif.ExifIFD.DateTimeOriginal)
 
+        # Format the new datetime as a string
+        new_datetime_str = new_datetime.strftime("%Y:%m:%d %H:%M:%S")
+
+        # Check existing DateTimeOriginal in EXIF metadata
+        existing_datetime = exif_dict["Exif"].get(piexif.ExifIFD.DateTimeOriginal)
         if existing_datetime:
             existing_datetime = datetime.strptime(existing_datetime.decode("utf-8"), "%Y:%m:%d %H:%M:%S")
             if existing_datetime == new_datetime:
-                return "✅ Already matches"
+                # Check the filesystem's last modified and access time
+                stat = os.stat(image_path)
+                file_last_modified = datetime.fromtimestamp(stat.st_mtime)  # Last modified time
+                file_last_access = datetime.fromtimestamp(stat.st_atime)  # Access time
 
-        new_datetime_str = new_datetime.strftime("%Y:%m:%d %H:%M:%S")
+                # Skip if all dates match
+                if file_last_modified == new_datetime and file_last_access == new_datetime:
+                    return "✅ Already matches"
+
+        # Update EXIF metadata
         exif_dict["Exif"][piexif.ExifIFD.DateTimeOriginal] = new_datetime_str.encode("utf-8")
         exif_dict["Exif"][piexif.ExifIFD.DateTimeDigitized] = new_datetime_str.encode("utf-8")
         exif_bytes = piexif.dump(exif_dict)
 
+        # Save the updated EXIF metadata to the file
         image = Image.open(image_path)
         image.save(image_path, exif=exif_bytes)
+
+        # Update the file's last modified and access time
+        os.utime(image_path, (new_datetime.timestamp(), new_datetime.timestamp()))
+
         return "🛠️ Updated"
     except Exception as e:
         return f"❌ Failed: {e}"
+
+
 
 
 def update_metadata_png(image_path, new_datetime):
@@ -85,9 +104,16 @@ def update_metadata_png(image_path, new_datetime):
         metadata = image.info  # Read existing metadata
         new_datetime_str = new_datetime.strftime("%Y-%m-%d %H:%M:%S")
 
-        # Check if metadata already exists and matches
+        # Check existing "Creation Time" metadata
         if "Creation Time" in metadata and metadata["Creation Time"] == new_datetime_str:
-            return "✅ Already matches"
+            # Check the filesystem's last modified and access time
+            stat = os.stat(image_path)
+            file_last_modified = datetime.fromtimestamp(stat.st_mtime)  # Last modified time
+            file_last_access = datetime.fromtimestamp(stat.st_atime)  # Access time
+
+            # Skip if all dates match
+            if file_last_modified == new_datetime and file_last_access == new_datetime:
+                return "✅ Already matches"
 
         # Add or update metadata
         png_metadata = PngImagePlugin.PngInfo()
@@ -98,9 +124,15 @@ def update_metadata_png(image_path, new_datetime):
 
         # Save the updated PNG image with metadata
         image.save(image_path, "png", pnginfo=png_metadata)
+
+        # Update the file's last modified and access time
+        os.utime(image_path, (new_datetime.timestamp(), new_datetime.timestamp()))
+
         return "🛠️ Updated"
     except Exception as e:
         return f"❌ Failed: {e}"
+
+
 
 
 def process_file(file_path, folder_path):
