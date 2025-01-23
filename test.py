@@ -10,24 +10,26 @@ def extract_date_from_title(filename, file_path=None):
     """
     Extract date and time from the image filename.
     Supported formats:
-    - PXL_YYYYMMDD_HHMMSS
-    - IMG_YYYYMMDD_HHMMSS
-    - Screenshot_YYYYMMDD-HHMMSS
+    - PXL_YYYYMMDD_HHMMSS (Google Pixel format)
+    - IMG_YYYYMMDD_HHMMSS (Generic format)
+    - Screenshot_YYYYMMDD-HHMMSS (ScreenShot format)
     - IMG-YYYYMMDD-WAXXXX or VID-YYYYMMDD-WAXXXX (WhatsApp format, assumes AM time)
     - FB_IMG_* (Facebook format, fallback to file's last modified time)
+    - LRM_YYYYMMDD_HHMMSS (Lightroom format)
     """
     patterns = [
         r"PXL_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})",
         r"IMG_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})",
         r"Screenshot_(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})",
         r"(IMG|VID)-(\d{4})(\d{2})(\d{2})-WA\d+",  # WhatsApp format (IMG/VID-YYYYMMDD-WAXXXX)
+        r"LRM_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})",  # Lightroom format (LRM_YYYYMMDD_HHMMSS)
     ]
 
     for pattern in patterns:
         match = re.search(pattern, filename)
         if match:
-            if len(match.groups()) == 6:  # Standard formats with time
-                year, month, day, hour, minute, second = map(int, match.groups())
+            if len(match.groups()) == 6:  # Formats with time
+                year, month, day, hour, minute, second = map(int, match.groups()[:6])
                 return datetime(year, month, day, hour, minute, second)
             elif len(match.groups()) == 4:  # WhatsApp format
                 _, year, month, day = match.groups()
@@ -75,25 +77,29 @@ def update_metadata_jpeg(image_path, new_datetime):
 def update_metadata_png(image_path, new_datetime):
     """
     Update metadata for PNG images with a creation time field.
+    If the metadata already exists and matches the target datetime, it skips the update.
     """
     try:
+        # Open the PNG image
         image = Image.open(image_path)
         metadata = image.info  # Read existing metadata
         new_datetime_str = new_datetime.strftime("%Y-%m-%d %H:%M:%S")
 
-        # If existing metadata already has the same datetime, skip updating
+        # Check if metadata already exists and matches
         if "Creation Time" in metadata and metadata["Creation Time"] == new_datetime_str:
             return "✅ Already matches"
 
-        # Add/Update the creation time metadata
+        # Add or update metadata
         png_metadata = PngImagePlugin.PngInfo()
+        for key, value in metadata.items():
+            png_metadata.add_text(key, value)
         png_metadata.add_text("Creation Time", new_datetime_str)
 
+        # Save the updated PNG image with metadata
         image.save(image_path, "png", pnginfo=png_metadata)
         return "🛠️ Updated"
     except Exception as e:
         return f"❌ Failed: {e}"
-
 
 def process_file(file_path, folder_path):
     """
