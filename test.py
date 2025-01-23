@@ -6,26 +6,44 @@ from PIL import Image, PngImagePlugin
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
-def extract_date_from_title(filename):
+def extract_date_from_title(filename, file_path=None):
     """
     Extract date and time from the image filename.
     Supported formats:
     - PXL_YYYYMMDD_HHMMSS
     - IMG_YYYYMMDD_HHMMSS
     - Screenshot_YYYYMMDD-HHMMSS
-    - IMG-YYYYMMDD-WAXXXX
+    - IMG-YYYYMMDD-WAXXXX or VID-YYYYMMDD-WAXXXX (WhatsApp format, assumes AM time)
+    - FB_IMG_* (Facebook format, fallback to file's last modified time)
     """
     patterns = [
         r"PXL_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})",
         r"IMG_(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})(\d{2})",
         r"Screenshot_(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})(\d{2})",
-        r"IMG-(\d{4})(\d{2})(\d{2})-WA\d+\.jpg",
+        r"(IMG|VID)-(\d{4})(\d{2})(\d{2})-WA\d+",  # WhatsApp format (IMG/VID-YYYYMMDD-WAXXXX)
     ]
+
     for pattern in patterns:
         match = re.search(pattern, filename)
-        if match and len(match.groups()) == 6:  # Ensure all six groups are present
-            year, month, day, hour, minute, second = map(int, match.groups())
-            return datetime(year, month, day, hour, minute, second)
+        if match:
+            if len(match.groups()) == 6:  # Standard formats with time
+                year, month, day, hour, minute, second = map(int, match.groups())
+                return datetime(year, month, day, hour, minute, second)
+            elif len(match.groups()) == 4:  # WhatsApp format
+                _, year, month, day = match.groups()
+                return datetime(int(year), int(month), int(day), 0, 0, 0)  # Assume 00:00:00 AM for WhatsApp files
+
+    # Handle Facebook filenames (FB_IMG_*)
+    if filename.startswith("FB_IMG_"):
+        # Fallback to the file's last modified time if no date is present in the filename
+        if file_path and os.path.exists(file_path):
+            timestamp = os.path.getmtime(file_path)
+            return datetime.fromtimestamp(timestamp)
+
+    # Handle Snapchat filenames (unsupported)
+    if filename.lower().startswith("snapchat-"):
+        return None
+
     return None
 
 
@@ -82,9 +100,11 @@ def process_file(file_path, folder_path):
     Process a single file to update its metadata.
     """
     relative_path = os.path.relpath(file_path, folder_path)
-    new_datetime = extract_date_from_title(os.path.basename(file_path))
+    new_datetime = extract_date_from_title(os.path.basename(file_path), file_path)
 
     if not new_datetime:
+        if os.path.basename(file_path).lower().startswith("snapchat-"):
+            return relative_path, "⚠️ Snapchat filenames unsupported for metadata updates"
         return relative_path, "⚠️ No valid date in filename"
 
     if file_path.lower().endswith((".jpg", ".jpeg")):
